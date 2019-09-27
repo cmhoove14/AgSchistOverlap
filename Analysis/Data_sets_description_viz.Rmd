@@ -1,0 +1,85 @@
+---
+title: "AgroSchisto Datasets"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+require(tidyverse)
+require(readxl)
+require(sringr)
+require(ggplot2)
+
+source("../R/general_helper_functions.R")
+```
+
+# AQUASTAT  
+```{r aquastat, message = FALSE, warning = FALSE}
+aquastat <- load_csv_from_googledrive("1TXFvEoVOfih4zbdHrRQXZM4ZcVKP3Z6n")
+
+unique(aquastat$`Variable Name`)
+```
+
+Let's start by looking at some of the national level variables that get at total area devoted to Ag
+
+```{r aquastat_nat_level_plot}
+aquastat %>% 
+  filter(`Variable Name` %in% c("Arable land area",
+                                "Permanent crops area",
+                                "% of total country area cultivated",
+                                "Irrigated cropping intensity")) %>% 
+  ggplot(aes(x = Year, y = Value, col = Area)) + 
+    geom_line(size = 1.2) +
+    theme_classic() +
+    facet_wrap(.~`Variable Name`, ncol = 2, nrow = 2,
+               scales = "free_y") +
+    labs(col = "Nation") +
+    theme(axis.text = element_text(size = 12),
+          axis.title = element_text(size = 14),
+          legend.position = "bottom")
+
+```
+
+# WHO Schisto  
+```{r who_schisto_dat, message = FALSE, fig.height=10, fig.width=8, warning=FALSE}
+who_schisto <- load_csv_from_googledrive("1twn-KM3AagRMdCjj4YgaVIotxZL-o_58")
+
+who_schisto %>% 
+  dplyr::select(Country, Year, `Population requiring PC for SCH annually`, `National coverage`) %>% 
+  mutate(`Population requiring PC for SCH annually` = as.numeric(gsub(",","",`Population requiring PC for SCH annually`)),
+         `National coverage` = as.numeric(gsub("%","",`National coverage`))) %>%  
+  gather("Variable", "Value", `Population requiring PC for SCH annually`:`National coverage`) %>%
+  ggplot(aes(x = Year, y = Value, col = Country)) +
+    geom_line(size = 1.2) +
+    theme_classic() +
+    facet_wrap(.~Variable, nrow = 2,
+               scales = "free_y") +
+    labs(col = "Nation") +
+    theme(axis.text = element_text(size = 12),
+          axis.title = element_text(size = 14),
+          legend.position = "bottom")
+```
+
+# EPAR Agricultural Development Indicator (derivative of LSMS-ISA)  
+```{r}
+#Download spreadsheet directly from github repository  
+tmp <- tempfile(fileext = ".xlsx")
+download.file("https://github.com/EvansSchoolPolicyAnalysisAndResearch/335_Data-Dissemination/raw/master/EPAR_UW_335_AgDev_Indicator_Estimates.xlsx",
+              destfile = tmp, mode = "wb")
+
+epar <- read_xlsx(tmp, sheet = "Estimates by Instrument")
+
+epar %>% 
+  filter(`Variable Name (in the .dta file)` == "use_inorg_fert" &
+           Geography %in% c("Ethiopia", "Nigeria", "Tanzania")) %>% 
+  mutate(year = as.numeric(str_split(Year, "-", simplify = T)[,1])) %>% 
+  ggplot(aes(x = year, y = Mean, col = Geography)) +
+    geom_line(size = 1.2) +
+    ylim(c(0,1)) +
+    theme_classic() +
+    labs(x = "Year",
+         y = "Proportion households using inorganic fertilizer",
+         col = "Nation")
+```
+

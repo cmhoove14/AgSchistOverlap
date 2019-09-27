@@ -1,0 +1,24 @@
+Package: AgSchistOverlap
+Description: Project investigating overlap of agrochemical pollution and schistosomiasis endemicity)
+Title: Agrochemical Pollution and Schistosomiasis areas of concern
+Version: 0.1.0
+License: CCO
+Type: Package
+Author@R: person("Christopher", "Hoover", email = "choover@berkeley.edu",
+                 role = c("aut", "cre"))
+Maintainer: Christopher Hoover <choover@berkeley.edu>
+URL: https://github.com/cmhoove14/AgSchistOverlap
+BugReports: https://github.com/cmhoove14/AgSchistOverlap/issues
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 6.1.1
+Suggests:
+    ggplot2,
+    gganimate
+Depends:
+    deSolve,
+    rootSolve,
+    adaptivetau,
+    MDPtoolbox,
+    dplyr,
+    googledrive
