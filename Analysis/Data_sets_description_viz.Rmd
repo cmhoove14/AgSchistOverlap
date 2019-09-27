@@ -16,19 +16,19 @@ source("../R/general_helper_functions.R")
 
 # AQUASTAT  
 ```{r aquastat, message = FALSE, warning = FALSE}
-aquastat <- load_csv_from_googledrive("1TXFvEoVOfih4zbdHrRQXZM4ZcVKP3Z6n")
+aquastat <- load_csv_from_googledrive("10H8QEJW7QCuAYn4OBMA-h58dE0FckTeq")
 
 unique(aquastat$`Variable Name`)
 ```
 
 Let's start by looking at some of the national level variables that get at total area devoted to Ag
 
-```{r aquastat_nat_level_plot}
+```{r aquastat_nat_level_plot, message = FALSE, fig.height=10, fig.width=8, warning=FALSE}
 aquastat %>% 
   filter(`Variable Name` %in% c("Arable land area",
                                 "Permanent crops area",
                                 "% of total country area cultivated",
-                                "Irrigated cropping intensity")) %>% 
+                                "Total agricultural water managed area")) %>% 
   ggplot(aes(x = Year, y = Value, col = Area)) + 
     geom_line(size = 1.2) +
     theme_classic() +
