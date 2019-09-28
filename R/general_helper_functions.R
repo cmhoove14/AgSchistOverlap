@@ -35,7 +35,7 @@ exp_seq <- function(min, max, seq.length){
   exp(seq(log(min), log(max), length.out = seq.length))
 }
 
-#' Function that takes a google drive file id and loads the file into your local R environment
+#' Load a csv as R object from a googledrive id
 #'
 #' You can find file ids by going to the sharing settings of a particular csv and
 #' copy/pasting the alphanumeric string between "https://drive.google.com/file/d/" and "/view?usp=sharing"
@@ -46,13 +46,33 @@ exp_seq <- function(min, max, seq.length){
 #' @export
 
 load_csv_from_googledrive <- function(id){
-  require(readr)
-  require(googledrive)
 
   temp <- tempfile(fileext = ".csv")
-  dl <- drive_download(as_id(id), path = temp, overwrite = TRUE)
+  dl <- googledrive::drive_download(as_id(id), path = temp, overwrite = TRUE)
 
-  out <- read_csv(temp)
+  out <- readr::read_csv(temp)
+
+  file.remove(temp)
+
+  return(out)
+}
+
+#' Load a stata as R object from a googledrive id
+#'
+#' You can find file ids by going to the sharing settings of a particular csv and
+#' copy/pasting the alphanumeric string between "https://drive.google.com/file/d/" and "/view?usp=sharing"
+#'
+#' @param id googledrive id
+#'
+#' @return R object from dta file in googledrive
+#' @export
+
+load_dta_from_googledrive <- function(id){
+
+  temp <- tempfile(fileext = ".dta")
+  dl <- googledrive::drive_download(as_id(id), path = temp, overwrite = TRUE)
+
+  out <- foreign::read.dta(temp)
 
   file.remove(temp)
 

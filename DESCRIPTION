@@ -21,4 +21,5 @@ Depends:
     adaptivetau,
     MDPtoolbox,
     dplyr,
-    googledrive
+    googledrive,
+    foreign
