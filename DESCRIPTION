@@ -22,4 +22,6 @@ Depends:
     MDPtoolbox,
     dplyr,
     googledrive,
-    foreign
+    foreign,
+    sf,
+    readr
