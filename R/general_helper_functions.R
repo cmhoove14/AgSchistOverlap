@@ -101,7 +101,7 @@ load_sf_from_googledrive <- function(id){
   
 #Get all files in the google drive folder and put them in the temp folder  
   for(i in 1:length(file_ids)){
-    drive_download(as_id(file_ids[i]), path = paste0(temp, "\\", file_names[i]), overwrite = TRUE)
+    drive_download(as_id(file_ids[i]), path = paste0(temp, "//", file_names[i]), overwrite = TRUE)
   }
   
 # load as sf object 
