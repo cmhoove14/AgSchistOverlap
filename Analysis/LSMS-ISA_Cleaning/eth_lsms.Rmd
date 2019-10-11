@@ -1,0 +1,256 @@
+---
+title: "Ethiopia Full"
+author: Elliot Quan
+output: pdf_document
+---
+
+# Description
+This notebook cleans the full Ethiopia dataset and returns the data at the following level: 
+
+household_id > holder_id > parcel_id > field_id
+
+(field is just a sub-parcel)
+
+devtools is required for loading package functions.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r}
+library(sf)
+library(tidyr)
+library(dplyr)
+library(readr)
+devtools::load_all() # load package functions
+```
+
+# Custom Functions
+```{r}
+# auxiliary function for handling sums of NA vectors
+# handles NA by returning NA if all are NA
+sumNA <- function(x) {
+  if (all(is.na(x))) {
+    return(NA)
+  } else {
+    return(sum(x, na.rm=TRUE))
+  }
+}
+
+# take a vector of inputs: if at least 1 input is 1, then return 1 else 0.
+# handles NA by returning NA if all are NA
+indicator <- function(x) {
+  if (all(is.na(x))) {
+    return(NA)
+  } else if (sum(x, na.rm=TRUE) > 0) {
+    return(1)
+  } else {
+    return(0)
+  }
+}
+
+```
+
+
+# Shapefile Data (GADM)
+Note: there are two zones with the same name: North Shewa. 
+```{r}
+eth_zone <- load_sf_from_googledrive('1zArP52rGPi-C5uhrwyH3L6CJJqiM_6GJ')
+eth_zone_sf <- st_transform(eth_zone, crs=3857) # convert to mercator/planar (3857)
+```
+
+```{r}
+eth_zone_sf[eth_zone_sf$NAME_1 == 'Amhara' & eth_zone_sf$NAME_2 == 'North Shewa', 'NAME_2'] 
+```
+
+
+# LSMS Agricultural Data
+```{r}
+# filenames are equal to variable names
+# sect3 is plot level fertilizer use
+sect3_pp_w1 <- load_csv_from_googledrive('1YG64BoNKdscBocfA_0I5fl7lnJbz8GkA') 
+sect3_pp_w2 <- load_dta_from_googledrive('1EhgkkmrMIieR7G2rnbTgeaKmsveGPVU0')
+sect3_pp_w3 <- load_csv_from_googledrive('1sFeyFvVmOk9hOhGuhkNyVpJzUXVv5jBQ')
+
+#sect4 is plot level herb/pest/fungicide use
+sect4_pp_w1 <- load_csv_from_googledrive('1-kpraW7alL4MQFYL7HYSEJqcHwt6Vy7O')
+sect4_pp_w2 <- load_dta_from_googledrive('1jFho2eZarM1Zd7IZaYWsuq6vTskRydZF')
+sect4_pp_w3 <- load_csv_from_googledrive('11GnBZGI8TANCy50C6ECwTyUPzczkecak')
+```
+
+
+
+# LSMS geovariables (location data)
+
+```{r}
+# get location data (Lon/Lat) for each household_id
+# original filename: pub_eth_householdgeovariables_y1.csv
+geo1 <- load_csv_from_googledrive('12ERO4j1LjJdRNQdePwXOBr-sItZScT_q')
+loc1 <- geo1 %>% select(household_id, longitude=LON_DD_MOD, latitude=LAT_DD_MOD)
+
+# for wave2/3, we use household_id2 (household_id applicable if household was sampled from wave1)
+#filename Pub_ETH_HouseholdGeovars_Y2.dta
+geo2 <- load_dta_from_googledrive('1CQ26y1bTmSgHDlv0nPDXut6OqetaUx51')
+loc2 <- geo2 %>% select(household_id2, longitude=lon_dd_mod, latitude=lat_dd_mod)
+
+#filename ETH_HouseholdGeovars_y3.csv
+geo3 <- load_csv_from_googledrive('1p4tKtkBnCNKpV95bbhKTgJb6DeG8Favz')
+loc3 <- geo3 %>% select(household_id2, longitude=lon_dd_mod, latitude=lat_dd_mod)
+
+loc1
+loc2
+loc3
+```
+
+
+
+```{r}
+# selecting relevant columns 
+wave1 <- sect3_pp_w1 %>% select(household_id, holder_id, parcel_id, field_id, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16_a, quant_dap=pp_s3q19_a, area=pp_s3q05_a) %>% drop_na(fert, household_id)
+
+wave2 <- sect3_pp_w2 %>% select(household_id2, holder_id, parcel_id, field_id, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16_a, quant_dap=pp_s3q19_a, area=pp_s3q05_a) %>% drop_na(fert, household_id2)
+
+wave3 <- sect3_pp_w3 %>% select(household_id2, holder_id, parcel_id, field_id, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16, quant_dap=pp_s3q19, area=pp_s3q05_a) %>% drop_na(fert, household_id2)
+
+wave1
+wave2
+wave3
+```
+
+
+
+```{r}
+# joining fertilizer data with locations (lat/lon)
+wave1_j <- inner_join(wave1, loc1) 
+wave1_j
+
+wave2_j <- inner_join(wave2, loc2) %>% rename(household_id = household_id2)
+wave2_j
+
+wave3_j <- inner_join(wave3, loc3) %>% rename(household_id = household_id2)
+wave3_j
+```
+
+
+
+```{r}
+# add countryname/year columns, and combine into one frame
+w1_fert <- data.frame(country="ethiopia", start_yr = 2011, end_yr = 2012, wave1_j, stringsAsFactors = F) 
+w2_fert <- data.frame(country="ethiopia", start_yr = 2013, end_yr = 2014, wave2_j, stringsAsFactors = F)
+w3_fert <- data.frame(country="ethiopia", start_yr = 2015, end_yr = 2016, wave3_j, stringsAsFactors = F)
+fert <- rbind(w1_fert, w2_fert, w3_fert)
+fert
+```
+
+```{r}
+# eliminate missing lon/lat data 
+fert_df <- fert[complete.cases(fert$longitude, fert$latitude), ]
+```
+
+
+
+
+# Cleaning/Transforming Fertilizer Data
+
+```{r}
+# LSMS data has 1 encoded as YES, 2 encoded as NO - we will change all 2s to 0s
+recode <- function(x) ifelse(x == 2 | x == 0, 0, 1)
+fert_df <- fert_df %>% mutate_at(c("fert", "urea", "dap", "manure", "compost", "organic_fert"), recode)
+
+# handling NAs - assume that if fert is 0 then no fertilizer was used, so set other columns to 0
+# remark 1: dot in list is essentially a placeholder for all variables that we want to pass to it
+# remark 2: funs is deprecated in favor of list in dplyr 0.8.0
+handleNA <- function(x, y) ifelse(x == 0, 0, y)
+fert_df <- fert_df %>% mutate_at(c("urea", "dap", "manure", "compost", "organic_fert", "quant_urea", "quant_dap"), list(~handleNA(fert, .)))
+
+fert_df <- fert_df %>% mutate(quant_urea = handleNA(urea, quant_urea)) %>% mutate(quant_dap = handleNA(dap, quant_dap))
+
+
+# summarize fertilizer use into 3 dummy vars: organic, inorganic, overall
+# note that there is a fertilizer column from the LSMS data, but we're creating our own just in case the
+# data is unreliable
+fert_df <- fert_df %>%
+  mutate(organic_fert_dummy = as.numeric(select(., matches('manure|compost|organic_fert')) %>% rowSums(na.rm=TRUE) > 0),
+    inorganic_fert_dummy = as.numeric(select(., matches('urea|dap')) %>% rowSums(na.rm=TRUE) > 0),
+    fert_dummy = as.numeric(select(., matches('fert|urea|dap|manure|compost')) %>% rowSums(na.rm=TRUE) >0))
+
+# remark: the above regex matches any column that contains any of the above words, which may not be desirable later on (i.e. if we want to add quantity data only). however, it doesn't matter if quantity is counted into the indicator, so we'll leave it as is. 
+```
+
+
+
+
+
+
+
+
+
+# LSMS pesticide/herbicide/fungicide data
+
+Note: no data on quantity used is available. Also, this data is at the level of household_id > holder_id > parcel_id > field_id > crop_code, but the fertilizer data only goes up to field id. since no quantity is availible, we will aggregate this data at the field_id level and then join with the fertilizer data.
+
+```{r}
+w1_phf <- sect4_pp_w1 %>% select(household_id, holder_id, parcel_id, field_id, prevention=pp_s4q04, pest=pp_s4q05, herb=pp_s4q06, fung=pp_s4q07) %>% drop_na(household_id, prevention) 
+w1_phf
+w2_phf <- sect4_pp_w2 %>% select(household_id2, holder_id, parcel_id, field_id, prevention=pp_s4q04, pest=pp_s4q05, herb=pp_s4q06, fung=pp_s4q07) %>% drop_na(household_id2, prevention) %>% rename(household_id = household_id2)
+
+w3_phf <- sect4_pp_w3 %>% select(household_id2, holder_id, parcel_id, field_id, prevention=pp_s4q04, pest=pp_s4q05, herb=pp_s4q06, fung=pp_s4q07) %>% drop_na(household_id2, prevention) %>% rename(household_id = household_id2)
+```
+
+```{r}
+w1_phf <- data.frame(country="ethiopia", start_yr = 2011, end_yr = 2012, w1_phf, stringsAsFactors = F) 
+w2_phf <- data.frame(country="ethiopia", start_yr = 2013, end_yr = 2014, w2_phf, stringsAsFactors = F)
+w3_phf <- data.frame(country="ethiopia", start_yr = 2015, end_yr = 2016, w3_phf, stringsAsFactors = F)
+phf <- rbind(w1_phf, w2_phf, w3_phf)
+phf
+```
+
+
+```{r}
+# 1 encoded as YES
+# 2 encoded as NO - wish to change to 0
+recode <- function(x) ifelse(x == 2, 0, 1)
+phf <- phf %>% mutate_at(c("prevention", "pest", "herb", "fung"), recode)
+
+# handling NAs - assume that if prevention is 0 then set other columns to 0
+handleNA <- function(x, y) ifelse(x == 0, 0, y)
+phf <- phf %>% mutate_at(c("pest", "herb", "fung"), list(~handleNA(prevention, .)) )
+
+```
+
+```{r}
+phf_grouped <- phf %>% group_by(country, start_yr, end_yr, household_id, holder_id, parcel_id, field_id) %>% summarize_all(indicator)
+```
+
+```{r}
+phf_df <- phf_grouped %>% rename(prev_yn = prevention, pest_yn = pest, herb_yn = herb, fung_yn = fung)
+phf_df
+```
+
+
+
+
+```{r}
+fert_df
+phf_df
+```
+
+
+```{r}
+eth_lsms <- inner_join(fert_df, phf_df, by = c('country', 'start_yr', 'end_yr', 'household_id', 'holder_id', 'parcel_id', 'field_id'))
+eth_lsms
+```
+
+```{r}
+eth_lsms <- eth_lsms %>% rename(fert_rep_yn = fert, urea_yn = urea, dap_yn = dap, manure_yn = manure, compost_yn = compost, ofert_rep_yn = organic_fert, ofert_yn = organic_fert_dummy, iofert_yn = inorganic_fert_dummy, fert_yn = fert_dummy) %>% select(-c('area', 'longitude', 'latitude'), c('area', 'longitude', 'latitude'))
+eth_lsms
+```
+
+
+```{r, eval=FALSE}
+# configure a filepath to write the output
+write_csv(eth_lsms, '../results/eth_lsms_full.csv')
+```
+
+
