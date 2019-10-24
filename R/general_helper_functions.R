@@ -72,7 +72,7 @@ load_dta_from_googledrive <- function(id){
   temp <- tempfile(fileext = ".dta")
   dl <- googledrive::drive_download(as_id(id), path = temp, overwrite = TRUE)
 
-  out <- foreign::read.dta(temp)
+  out <- foreign::read.dta(temp, convert.factors=FALSE)
 
   file.remove(temp)
 

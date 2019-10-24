@@ -1,0 +1,196 @@
+---
+title: "Ethiopia Full"
+author: Elliot Quan
+output: pdf_document
+---
+
+# Description
+This notebook cleans the full Ethiopia dataset using included survey weights, 
+
+(field is just a sub-parcel)
+
+devtools is required for loading package functions. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r}
+library(survey)
+library(sf)
+library(tidyr)
+library(dplyr)
+library(readr)
+library(tibble)
+devtools::load_all() # load package functions
+```
+
+# Custom Functions
+```{r}
+# auxiliary function for handling sums of NA vectors
+# handles NA by returning NA if all are NA
+sumNA <- function(x) {
+  if (all(is.na(x))) {
+    return(NA)
+  } else {
+    return(sum(x, na.rm=TRUE))
+  }
+}
+
+# take a vector of inputs: if at least 1 input is 1, then return 1 else 0.
+# handles NA by returning NA if all are NA
+indicator <- function(x) {
+  if (all(is.na(x))) {
+    return(NA)
+  } else if (sum(x, na.rm=TRUE) > 0) {
+    return(1)
+  } else {
+    return(0)
+  }
+}
+
+```
+
+# LSMS Agricultural Data
+```{r}
+# filenames are equal to variable names
+# sect3 is plot level fertilizer use
+sect3_pp_w1 <- load_csv_from_googledrive('1YG64BoNKdscBocfA_0I5fl7lnJbz8GkA') 
+sect3_pp_w2 <- load_dta_from_googledrive('1EhgkkmrMIieR7G2rnbTgeaKmsveGPVU0')
+sect3_pp_w3 <- load_csv_from_googledrive('1sFeyFvVmOk9hOhGuhkNyVpJzUXVv5jBQ')
+
+#sect4 is plot level herb/pest/fungicide use
+sect4_pp_w1 <- load_csv_from_googledrive('1-kpraW7alL4MQFYL7HYSEJqcHwt6Vy7O')
+sect4_pp_w2 <- load_dta_from_googledrive('1jFho2eZarM1Zd7IZaYWsuq6vTskRydZF')
+sect4_pp_w3 <- load_csv_from_googledrive('11GnBZGI8TANCy50C6ECwTyUPzczkecak')
+```
+
+
+```{r}
+# selecting relevant columns. we drop any columns that have missing hhid or fert indicator, since if fert = NA then we cannot draw conclusions from their data.
+wave1 <- sect3_pp_w1 %>% select(hhid=household_id, holder_id, parcel_id, field_id, weights = pw, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16_a, quant_dap=pp_s3q19_a, area=pp_s3q05_a) %>% drop_na(fert, hhid)
+
+wave2 <- sect3_pp_w2 %>% select(hhid=household_id2, holder_id, parcel_id, field_id, weights = pw2, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16_a, quant_dap=pp_s3q19_a, area=pp_s3q05_a) %>% drop_na(fert, hhid)
+
+wave3 <- sect3_pp_w3 %>% select(hhid=household_id2, holder_id, parcel_id, field_id, weights = pw_w3, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16, quant_dap=pp_s3q19, area=pp_s3q05_a) %>% drop_na(fert, hhid)
+```
+
+
+```{r}
+# add countryname/year columns, and combine into one frame
+w1_fert <- data.frame(country="ethiopia", start_yr = 2011, end_yr = 2012, wave1, stringsAsFactors = F) 
+w2_fert <- data.frame(country="ethiopia", start_yr = 2013, end_yr = 2014, wave2, stringsAsFactors = F)
+w3_fert <- data.frame(country="ethiopia", start_yr = 2015, end_yr = 2016, wave3, stringsAsFactors = F)
+fert <- rbind(w1_fert, w2_fert, w3_fert)
+fert
+```
+
+# Cleaning/Transforming Fertilizer Data
+
+```{r}
+# LSMS data has 1 encoded as YES, 2 encoded as NO - we will change all 2s to 0s
+recode = function(x) ifelse(x == 2 | x == 0, 0, 1)
+fert_df = fert %>% mutate_at(c("fert", "urea", "dap", "manure", "compost", "organic_fert"), recode)
+
+# handling NAs - assume that if fert is 0 then no fertilizer was used, so set other columns to 0
+# remark 1: the . in list is a placeholder for all variables that we want to pass to it
+# remark 2: funs is deprecated in favor of list in dplyr 0.8.0
+handleNA <- function(x, y) ifelse(x == 0, 0, y)
+fert_df <- fert_df %>% mutate_at(c("urea", "dap", "manure", "compost", "organic_fert", "quant_urea", "quant_dap"), list(~handleNA(fert, .)))
+fert_df <- fert_df %>% mutate(quant_urea = handleNA(urea, quant_urea)) %>% mutate(quant_dap = handleNA(dap, quant_dap))
+```
+
+
+```{r}
+# summarize fertilizer use into 3 dummy vars: organic, inorganic, overall
+# note that there is a fertilizer column from the LSMS data, but we're creating our own just in case the
+# data is unreliable
+fert_indic <- fert_df %>%
+  mutate(organic_fert_dummy = as.numeric(select(., matches('manure|compost|organic_fert')) %>% rowSums(na.rm=TRUE) > 0),
+    inorganic_fert_dummy = as.numeric(select(., matches('urea|dap')) %>% rowSums(na.rm=TRUE) > 0),
+    fert_dummy = as.numeric(select(., matches('fert|urea|dap|manure|compost')) %>% rowSums(na.rm=TRUE) >0))
+
+# remark: the above regex matches any column that contains any of the above words, which may not be desirable later on (i.e. if we want to add quantity data only). however, it doesn't matter if quantity is counted into the indicator, so we'll leave it as is. 
+```
+
+
+```{r}
+# obtain weights indexed by start_yr, hhid
+weights = fert_indic %>% select('start_yr', 'hhid', 'weights') %>% unique()
+```
+
+
+```{r}
+# group indicator data only, summarize by another indicator for the household (did the household use x?)
+fert_indic_gr = fert_indic %>% select(-c('holder_id', 'parcel_id', 'field_id', 'weights', 'region', 'zone', 'area')) %>% group_by(country, start_yr, end_yr, hhid) %>% summarize_all(indicator)
+```
+
+
+```{r}
+fert_weights = fert_indic_gr %>% inner_join(weights, by = c('start_yr', 'hhid'))
+```
+
+
+```{r}
+fw1 = fert_weights %>% filter(start_yr==2011)
+fw2 = fert_weights %>% filter(start_yr==2013)
+fw3 = fert_weights %>% filter(start_yr==2015)
+fw1des = svydesign(id = ~hhid,
+                        strata  = ~start_yr,
+                        weights = ~weights,
+                        nest = TRUE,
+                        data = fw1)
+fw2des = svydesign(id = ~hhid,
+                        strata  = ~start_yr,
+                        weights = ~weights,
+                        nest = TRUE,
+                        data = fw2)
+fw3des = svydesign(id = ~hhid,
+                        strata  = ~start_yr,
+                        weights = ~weights,
+                        nest = TRUE,
+                        data = fw3)
+```
+
+
+```{r}
+cols = c('fert', 'urea', 'dap', 'organic_fert_dummy', 'inorganic_fert_dummy', 'fert_dummy')
+d = length(cols)
+
+calc_means = function(design) {
+  means = c(0, d)
+  for (var in 1:d) {
+    f = as.formula(paste('~', cols[var]))
+    means[var] = svymean(f, design, na.rm=TRUE)
+  }
+  return(means)
+}
+res = matrix(0, nrow=3, ncol=d)
+res[1,] = calc_means(fw1des)
+res[2,] = calc_means(fw2des)
+res[3,] = calc_means(fw3des)
+
+colnames(res) = cols
+rownames(res) = c(2011, 2013, 2015)
+res
+```
+
+```{r}
+eth_agg = data.frame(res)
+eth_agg$year = rownames(res)
+```
+
+```{r}
+# calculating means without weighting - clearly there's a difference.
+
+fw1 %>% select(-c('country', 'start_yr')) %>% summarize_all(mean, na.rm=TRUE)
+```
+
+```{r,eval=FALSE}
+write_csv(res, 'natl_agg_results/eth_res.csv')
+```
+
+
+
+
