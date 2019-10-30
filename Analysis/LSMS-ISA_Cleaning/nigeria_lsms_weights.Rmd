@@ -1,0 +1,399 @@
+---
+title: "Nigeria LSMS All"
+author: Elliot Quan
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r}
+library(survey)
+library(reshape2)
+library(readr)
+library(dplyr)
+library(tidyr)
+devtools::load_all() # load package functions
+```
+
+
+```{r}
+# random functions: documentation is not 100% complete, will fix later.
+# 
+# auxiliary function for handling sums of NA vectors
+# handles NA by returning NA if all are NA
+sumNA <- function(x) {
+  if (all(is.na(x))) {
+    return(NA)
+  } else {
+    return(sum(x, na.rm=TRUE))
+  }
+}
+
+# take a vector of inputs: if at least 1 input is 1, then return 1 else 0.
+# handles NA by returning NA if all are NA
+indicator <- function(x) {
+  if (all(is.na(x))) {
+    return(NA)
+  } else if (sum(x, na.rm=TRUE) > 0) {
+    return(1)
+  } else {
+    return(0)
+  }
+}
+
+#' Converts a column of quantity data to kg based on unit coding provided
+#' by units. 1 = kg, 2 = g, 3 = liter, 4 = centiliter. Does not mutate original df.
+#'
+#' @param quant quantity (character) 
+#' @param units specifies units of quant (integer)
+#' @param data (dataframe)
+#'
+#' @return converted quant vector
+unit_conv <- function(quant, units) {
+  return(case_when(
+    units == 1 ~ quant,
+    units == 2 ~ quant/1000,
+    units == 3 ~ quant,
+    units == 4 ~ quant/100
+  ))
+}
+
+#' Same as above function, except coding 1 = liter, 2 = gram, 3 = kg, other = 0 (cannot convert units)
+#' This also works for 1 = kg, 2 = gram, 3 = liter
+unit_conv_pest <- function(quant, units) {
+  return(case_when(
+    units == 1 ~ quant,
+    units == 2 ~ quant/1000,
+    units == 3 ~ quant,
+    is.numeric(units) ~ 0 
+  ))
+}
+
+#' If x is 2 or 0, set to 0. This recodes an x column.
+recode <- function(x) ifelse(x == 2 | x == 0, 0, 1)
+
+#' this is mainly used for taking a y/n column x, and wanting to return 0 if x is 0 else y for each observation.
+#' for example: if x = (0, 0, 1) and y = (NA, NA, 15), then we want to return (0, 0, 15).
+handleNA <- function(x, y) ifelse(x == 0, 0, y)
+```
+
+
+# Description
+
+This notebook generates a csv file which contains national level estimates of fertilizer use.
+
+# Fertilizer data
+
+For wave1/2, fert data is from the Post-Planting visit (so we need to use the weight associated with planting). For wave3, fert data is from the Post-Harvest visit (so we need to use the weight associated with harvest). 
+
+
+
+```{r}
+weights = load_csv_from_googledrive('1Ii83rJrX5dze6-wbNpCVj82sDHdHfXJY')
+pw = weights %>% select(ea,hhid, w1 = wt_w1v1, w2 = wt_w2v1, w3 = wt_w3v2)
+```
+
+
+
+For some reason, some households that were sampled in wave2 planting are missing weights. We must then impute those weights (since their weight is equal to the weight of other households in the same enumeration area). This will also assign weights to wave2 households that were not interviewed, which is fine since those will be excluded. 10 household in w2 could not have their weights imputed, so they were dropped.
+
+```{r}
+pw2 = pw[, c('hhid', 'ea', 'w2')]
+for (i in 1:nrow(pw2)) {
+  if (is.na(pw2[i, 'w2'])) {
+    # subset of pw2 with same ea
+    same_ea = (pw2 %>% filter(ea == pw2$ea[i]))
+    # find first non NA weight
+    non_na_index = which(!is.na(same_ea$w2))[1]
+    # impute the missing weight
+    pw2[i, 'w2'] = same_ea[non_na_index, 'w2']
+  }
+}
+pw$w2 = pw2$w2
+pw = pw %>% select(-ea)
+```
+
+```{r}
+pwtall = melt(pw, id.vars='hhid') %>% rename(start_yr = variable, weight = value)
+vals = c(w1 = 2010, w2 = 2012, w3=2015)
+pwtall$start_yr = dplyr::recode(pwtall$start_yr, !!!vals)
+```
+
+
+
+```{r}
+#sect11d_platingw1.dta 
+fert_w1 <- load_dta_from_googledrive('1P0I9YUBoRc8h93icSQ_f5Du6optQDIpW')
+#sect11d_plantingw2.dta
+fert_w2 <- load_dta_from_googledrive('1xCKxiEdTzpEaGFxZ9DgxjGGBitLq2WT-')
+#secta11d_harvestw3.csv
+fert_w3 <- load_csv_from_googledrive('1yNClVc5VQ7YB8ujxC1uZFSLU_WZEE1d2')
+```
+
+area data - need to join by plotid. area is in m^2, so need to convert to hectares (divide by 10000) later
+```{r}
+#sect11a1_plantingw1.dta
+area_w1 <- load_dta_from_googledrive('1iG1CPzObtP9vBWJBzpEa1Mps3nMtAJqP')
+#sect11a1_plantingw2.dta
+area_w2 <- load_dta_from_googledrive('1v7LOdon8FiHXz6Hef_B6EZo9-_Ylw2Vj')
+#sect11a1_plantingw3.csv
+area_w3 <- load_csv_from_googledrive('1kUSspoxLRWS9a7sOp1-45cvwtI-pWhL0')
+
+area_w1 <- area_w1 %>% select(hhid, plotid, area = s11aq4d) 
+area_w2 <- area_w2 %>% select(hhid, plotid, area = s11aq4c)
+area_w3 <- area_w3 %>% select(hhid, plotid, area = s11aq4c)
+
+fert_w1 <- fert_w1 %>% inner_join(area_w1, by = c('hhid', 'plotid'))
+fert_w2 <- fert_w2 %>% inner_join(area_w2, by = c('hhid', 'plotid'))
+fert_w3 <- fert_w3 %>% inner_join(area_w3, by = c('hhid', 'plotid'))
+fert_w3 = as.data.frame(fert_w3) 
+```
+
+
+
+
+Note: in wave3 organic fert is coded differently, but since we don't really care about it (and it is unclear what type is used) we will omit it. THere are 4 categories of fert: leftover (from previous planting seasons), free (from government/etc), bought1 (most purchased), and bought2 (second most purchased).
+
+```{r}
+fert1 <- fert_w1 %>% select(zone, state, hhid, plotid, area, fert_yn = s11dq1, 
+                          leftover_yn = s11dq2, leftover_type = s11dq3, leftover_quant = s11dq4, 
+                          free_yn = s11dq6, free_type = s11dq7, free_quant = s11dq8,
+                          bought1_yn = s11dq12, bought1_type = s11dq14, bought1_quant = s11dq15,
+                          bought2_yn = s11dq23, bought2_type = s11dq25, bought2_quant = s11dq26) %>% drop_na(fert_yn)
+
+
+fert2 <- fert_w2 %>% select(zone, state, hhid, plotid, area, fert_yn = s11dq1, 
+                            leftover_yn = s11dq2, leftover_type = s11dq3, leftover_quant = s11dq4,
+                            free_yn = s11dq6, free_type = s11dq7, free_quant = s11dq8,
+                            bought1_yn = s11dq12, bought1_type = s11dq15, bought1_quant = s11dq16,
+                            bought2_yn = s11dq24, bought2_type = s11dq27, bought2_quant = s11dq28) %>% drop_na(fert_yn)
+
+# wave3 quantities are varied, so need to standardize all weights to kg using unit_conv
+fert3 <- fert_w3 %>% select(zone, state, hhid, plotid, area, fert_yn = s11dq1, 
+                            leftover_yn = s11dq2, leftover_type = s11dq3, leftover_quant = s11dq4a,
+                            leftover_quant_units = s11dq4b,
+                            free_yn = sect11dq6, free_type = sect11dq7, free_quant = sect11dq8a,
+                            free_quant_units = sect11dq8b,
+                            bought1_yn = s11dq12, bought1_type = s11dq15, bought1_quant = s11dq16a,
+                            bought1_quant_units = s11dq16b,
+                            bought2_yn = s11dq24, bought2_type = s11dq27, bought2_quant = s11dq28a,
+                            bought2_quant_units = s11dq28b) %>% drop_na(fert_yn) 
+
+fert3 <- fert3 %>% mutate(leftover_quant = unit_conv(leftover_quant, leftover_quant_units),
+                          free_quant = unit_conv(free_quant, free_quant_units),
+                          bought1_quant = unit_conv(bought1_quant, bought1_quant_units), 
+                          bought2_quant = unit_conv(bought2_quant, bought2_quant_units)) %>% select(-contains('units'))
+
+fert1
+fert2
+fert3
+```
+
+```{r}
+w1_fert <- data.frame(country="nigeria", start_yr = 2010, end_yr = 2011, fert1) 
+w2_fert <- data.frame(country="nigeria", start_yr = 2012, end_yr = 2013, fert2)
+w3_fert <- data.frame(country="nigeria", start_yr = 2015, end_yr = 2016, fert3)
+fert = rbind(w1_fert, w2_fert, w3_fert)
+```
+
+```{r}
+# convert m^2 to hectares
+fert$area = fert$area/10000
+```
+
+
+
+
+
+# recoding data
+```{r}
+# for all y/n cols, change 2s to 0s (1 = yes, 0 = no)
+fert <- fert %>% mutate_at(c('fert_yn', 'leftover_yn', 'free_yn', 'bought1_yn', 'bought2_yn'), recode)
+
+# if no fert used, then set the following cols to 0 instead of NA. See handleNA fxn above.
+fert <- fert %>% mutate_at(c('leftover_yn', 'free_yn', 'bought1_yn', 'bought2_yn', 'leftover_type', 'free_type', 'bought1_type', 'bought2_type', 'leftover_quant', 'free_quant', 'bought1_quant', 'bought2_quant'), list(~handleNA(fert_yn, .)))
+
+# same goes for the other categories of use: if none used, set both type and quant to 0.
+fert <- fert %>% mutate_at(c('leftover_type', 'leftover_quant'), list(~handleNA(leftover_yn, .))) %>% 
+  mutate_at(c('free_type', 'free_quant'), list(~handleNA(free_yn, .))) %>%
+  mutate_at(c('bought1_type', 'bought1_quant'), list(~handleNA(bought1_yn, .))) %>%
+  mutate_at(c('bought2_type', 'bought2_quant'), list(~handleNA(bought2_yn, .)))
+```
+
+
+```{r}
+# for each of leftover, free, bought1, bought2, check that the type of fertilizer matches the desired type. if so, then add that quantity to the sum and return the total quantities for the type.
+agg_quant <- function(type, df) {
+  return(ifelse(df$leftover_type == type, df$leftover_quant, 0) + ifelse(df$free_type == type, df$free_quant, 0) + ifelse(df$bought1_type == type, df$bought1_quant, 0) + ifelse(df$bought2_type == type, df$bought2_quant, 0))
+}
+
+# return 1 if at least one of the leftover, free, bought1, bought2 equals type, else 0.
+yn_quant <- function(type, df) {
+  return(as.numeric(((df$leftover_type == type) | (df$free_type == type) | (df$bought1_type == type) | (df$bought2_type == type))))
+}
+
+fert <- fert %>% mutate(npk_yn  = yn_quant(1, fert), urea_yn = yn_quant(2, fert), comp_manure_yn = yn_quant(3, fert), other_yn = yn_quant(4, fert))
+
+fert <- fert %>% mutate(npk_quant = agg_quant(1, fert), urea_quant = agg_quant(2, fert), comp_manure_quant = agg_quant(3, fert), other_quant = agg_quant(4, fert)) 
+```
+
+
+```{r}
+# add indicator vars for organic (ofert), inorganic (iofert), all fert (fert)
+fert1 <- fert  %>% mutate(ofert_yn = comp_manure_yn, iofert_yn = as.numeric(select(., matches('npk_yn|urea_yn')) %>% rowSums(na.rm = TRUE) > 0)) 
+fert1
+```
+
+```{r}
+# final selection
+fert_df <- fert1 %>% select(start_yr, hhid, area, fert_yn, npk_yn, urea_yn, comp_manure_yn, other_yn, ofert_yn, iofert_yn, npk_quant, urea_quant, comp_manure_quant, other_quant)
+
+```
+
+```{r}
+fert_df$total_quant = fert_df %>% select(contains('quant')) %>% rowSums(na.rm=TRUE)
+```
+
+Now we group the data by household. Quantity & area (continuous) will be summarized by sum, indicator variables (categorical) will be summarized by an indicator.
+
+```{r}
+fert_cont = fert_df %>% select(start_yr, hhid, matches('area|quant')) %>% group_by(start_yr, hhid) %>% summarize_all(sum, na.rm=TRUE)
+fert_cat = fert_df %>% select(-matches('area|quant')) %>% group_by(start_yr, hhid) %>% summarize_all(indicator)
+fert_df = fert_cont %>% inner_join(fert_cat)
+```
+
+
+
+
+Now we aggregate the data for each of the 3 surveys and use the survey weights to produce national lvl estimates. Note that hhids are not unique across surveys (since households are revisited), so we need to join by hhid and start_yr.
+
+
+```{r}
+fert = fert_df %>% inner_join(pwtall, by=c('start_yr', 'hhid'))
+```
+
+
+
+```{r}
+fw1 = fert %>% filter(start_yr == 2010)
+fw2 = fert %>% filter(start_yr == 2012) %>% drop_na(weight)
+fw3 = fert %>% filter(start_yr == 2015)
+fw1des = svydesign(id = ~hhid,
+                        weights = ~weight,
+                        nest = TRUE,
+                        data = fw1)
+fw2des = svydesign(id = ~hhid,
+                        weights = ~weight,
+                        nest = TRUE,
+                        data = fw2)
+fw3des = svydesign(id = ~hhid,
+                        weights = ~weight,
+                        nest = TRUE,
+                        data = fw3)
+```
+
+
+```{r}
+
+cols = c('fert_yn', 'npk_yn', 'urea_yn', 'comp_manure_yn', 'other_yn', 'ofert_yn', 'iofert_yn', 'npk_quant', 'urea_quant', 'comp_manure_quant', 'other_quant', 'total_quant', 'area')
+d = length(cols)
+
+calc_res = function(design) {
+  res = c(0, d)
+  for (var in 1:d) {
+    f = as.formula(paste('~', cols[var]))
+    if (grepl('quant|area', cols[var])) {
+      res[var] = svytotal(f, design, na.rm=TRUE)
+    } else {
+      res[var] = svymean(f, design, na.rm=TRUE)
+    }
+    
+  }
+  return(res)
+}
+res = matrix(0, nrow=3, ncol=d)
+res[1,] = calc_res(fw1des)
+res[2,] = calc_res(fw2des)
+res[3,] = calc_res(fw3des)
+
+colnames(res) = cols
+rownames(res) = c(2011, 2013, 2015)
+res
+```
+
+
+
+
+# Pesticide data (revisit later)
+
+Note: Wave2 is missing sect11c2_plantingw2, so until that can be found we will omit for now.
+
+```{r}
+#sect11c_plantingw1.csv
+w1_pest <- load_dta_from_googledrive('1thrw4617geattiMhnkpkgy-e4h19jG8O')
+w1_pest
+
+#secta11c2_harvestw3.csv
+w3_pest <- load_csv_from_googledrive('1NA_7J10lTjSFS4K13egPtWMYqixcijuf')
+w3_pest
+```
+
+
+
+```{r}
+pest1 <- w1_pest %>% select(hhid, plotid, pest_yn = s11cq1, pest_quant = s11cq2a, pest_quant_unit = s11cq2b, herb_yn = s11cq10, herb_quant = s11cq11a, herb_quant_unit = s11cq11b) %>% drop_na(pest_yn, herb_yn)
+pest3 <- w3_pest %>% select(hhid, plotid, pest_yn =s11c2q1, pest_quant = s11c2q2a, pest_quant_unit = s11c2q2b, herb_yn = s11c2q10, herb_quant = s11c2q11a, herb_quant_unit = s11c2q11b) %>% drop_na(pest_yn, herb_yn)
+pest1
+pest3
+```
+
+
+```{r}
+w1_p <- data.frame(country="nigeria", start_yr = 2010, end_yr = 2011, pest1, stringsAsFactors = F) 
+w3_p <- data.frame(country="nigeria", start_yr = 2015, end_yr = 2016, pest3, stringsAsFactors = F)
+pest_c <- rbind(w1_p, w3_p)
+pest_c
+```
+
+
+
+```{r}
+# for y/n cols, set 2 to 0
+pest_c[pest_c$pest_yn == 2, c('pest_yn')] <- 0
+pest_c[pest_c$herb_yn == 2, c('herb_yn')] <- 0
+
+# if no pest used or no herb used, then set quant and type columns to 0.
+pest_c <- pest_c %>% mutate_at(c('pest_quant', 'pest_quant_unit'), list(~handleNA(pest_yn, .))) %>% 
+  mutate_at(c('herb_quant', 'herb_quant_unit'), list(~handleNA(herb_yn, .)))
+pest_c
+
+pest_df <- pest_c %>% mutate(pest_quant = unit_conv_pest(pest_quant, pest_quant_unit), herb_quant = unit_conv_pest(herb_quant, herb_quant_unit))
+pest_df
+```
+
+# Merging Fertilizer + Pesticide
+
+merge on country, start_yr, end_yr, hhid, plotid. To preserve the wave2 fertilizer data, we do a left join (since w2 pesticide data is missing).
+
+```{r}
+final_df <- fert_df %>% left_join(pest_df, by = c('country', 'start_yr', 'end_yr', 'hhid', 'plotid'))
+final_df 
+```
+
+```{r}
+final <- final_df %>% select(country, start_yr, end_yr, zone, state, hhid, plotid,  fert_rep_yn, npk_yn, urea_yn, comp_manure_yn, other_yn, ofert_yn, iofert_yn, pest_yn,  herb_yn,  quant_npk = npk_quant, quant_urea = urea_quant, quant_comp_manure = comp_manure_quant, quant_other = other_quant,  quant_pest = pest_quant, quant_herb = herb_quant, area, longitude, latitude) %>% select(-c('area', 'longitude', 'latitude'), c('area', 'longitude', 'latitude'))
+final
+```
+
+```{r, eval=FALSE}
+# write the df only 
+write_csv(final, '../results/nga_lsms_full.csv')
+```
+
+
+
+
+
+
