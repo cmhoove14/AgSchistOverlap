@@ -1,16 +1,8 @@
 ---
-title: "Ethiopia Full"
+title: "Ethiopia LSMS"
 author: Elliot Quan
 output: pdf_document
 ---
-
-# Description
-This notebook cleans the full Ethiopia dataset using included survey weights, 
-
-(field is just a sub-parcel)
-
-devtools is required for loading package functions. 
-
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
@@ -18,7 +10,6 @@ knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
 
 ```{r}
 library(survey)
-library(sf)
 library(tidyr)
 library(dplyr)
 library(readr)
@@ -26,11 +17,20 @@ library(tibble)
 devtools::load_all() # load package functions
 ```
 
+
+# Description
+This notebook cleans the full Ethiopia dataset using included survey weights.
+
+devtools is required for loading package functions. 
+
+(Terminology: field is just a sub-parcel)
+
+
 # Custom Functions
 ```{r}
 # auxiliary function for handling sums of NA vectors
 # handles NA by returning NA if all are NA
-sumNA <- function(x) {
+sumNA = function(x) {
   if (all(is.na(x))) {
     return(NA)
   } else {
@@ -40,7 +40,7 @@ sumNA <- function(x) {
 
 # take a vector of inputs: if at least 1 input is 1, then return 1 else 0.
 # handles NA by returning NA if all are NA
-indicator <- function(x) {
+indicator = function(x) {
   if (all(is.na(x))) {
     return(NA)
   } else if (sum(x, na.rm=TRUE) > 0) {
@@ -50,39 +50,46 @@ indicator <- function(x) {
   }
 }
 
+# recoding 2s to 0s. there's a dplyr method that does this as well
+recode = function(x) ifelse(x == 2 | x == 0, 0, 1)
+
+# used for setting other variables to 0 if x is 0
+handleNA = function(x, y) ifelse(x == 0, 0, y)
 ```
 
 # LSMS Agricultural Data
 ```{r}
 # filenames are equal to variable names
 # sect3 is plot level fertilizer use
-sect3_pp_w1 <- load_csv_from_googledrive('1YG64BoNKdscBocfA_0I5fl7lnJbz8GkA') 
-sect3_pp_w2 <- load_dta_from_googledrive('1EhgkkmrMIieR7G2rnbTgeaKmsveGPVU0')
-sect3_pp_w3 <- load_csv_from_googledrive('1sFeyFvVmOk9hOhGuhkNyVpJzUXVv5jBQ')
+sect3_pp_w1 = load_csv_from_googledrive('1YG64BoNKdscBocfA_0I5fl7lnJbz8GkA') 
+sect3_pp_w2 = load_dta_from_googledrive('1EhgkkmrMIieR7G2rnbTgeaKmsveGPVU0')
+sect3_pp_w3 = load_csv_from_googledrive('1sFeyFvVmOk9hOhGuhkNyVpJzUXVv5jBQ')
 
 #sect4 is plot level herb/pest/fungicide use
-sect4_pp_w1 <- load_csv_from_googledrive('1-kpraW7alL4MQFYL7HYSEJqcHwt6Vy7O')
-sect4_pp_w2 <- load_dta_from_googledrive('1jFho2eZarM1Zd7IZaYWsuq6vTskRydZF')
-sect4_pp_w3 <- load_csv_from_googledrive('11GnBZGI8TANCy50C6ECwTyUPzczkecak')
+sect4_pp_w1 = load_csv_from_googledrive('1-kpraW7alL4MQFYL7HYSEJqcHwt6Vy7O')
+sect4_pp_w2 = load_dta_from_googledrive('1jFho2eZarM1Zd7IZaYWsuq6vTskRydZF')
+sect4_pp_w3 = load_csv_from_googledrive('11GnBZGI8TANCy50C6ECwTyUPzczkecak')
 ```
 
 
 ```{r}
+# first analyze fertilizer data
+
 # selecting relevant columns. we drop any columns that have missing hhid or fert indicator, since if fert = NA then we cannot draw conclusions from their data.
-wave1 <- sect3_pp_w1 %>% select(hhid=household_id, holder_id, parcel_id, field_id, weights = pw, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16_a, quant_dap=pp_s3q19_a, area=pp_s3q05_a) %>% drop_na(fert, hhid)
+wave1 = sect3_pp_w1 %>% select(hhid=household_id, holder_id, parcel_id, field_id, weights = pw, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16_a, quant_dap=pp_s3q19_a, area=pp_s3q05_a) %>% drop_na(fert, hhid)
 
-wave2 <- sect3_pp_w2 %>% select(hhid=household_id2, holder_id, parcel_id, field_id, weights = pw2, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16_a, quant_dap=pp_s3q19_a, area=pp_s3q05_a) %>% drop_na(fert, hhid)
+wave2 = sect3_pp_w2 %>% select(hhid=household_id2, holder_id, parcel_id, field_id, weights = pw2, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16_a, quant_dap=pp_s3q19_a, area=pp_s3q05_a) %>% drop_na(fert, hhid)
 
-wave3 <- sect3_pp_w3 %>% select(hhid=household_id2, holder_id, parcel_id, field_id, weights = pw_w3, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16, quant_dap=pp_s3q19, area=pp_s3q05_a) %>% drop_na(fert, hhid)
+wave3 = sect3_pp_w3 %>% select(hhid=household_id2, holder_id, parcel_id, field_id, weights = pw_w3, region=saq01, zone=saq02, fert=pp_s3q14, urea=pp_s3q15, dap=pp_s3q18, manure=pp_s3q21, compost=pp_s3q23, organic_fert=pp_s3q25, quant_urea=pp_s3q16, quant_dap=pp_s3q19, area=pp_s3q05_a) %>% drop_na(fert, hhid)
 ```
 
 
 ```{r}
 # add countryname/year columns, and combine into one frame
-w1_fert <- data.frame(country="ethiopia", start_yr = 2011, end_yr = 2012, wave1, stringsAsFactors = F) 
-w2_fert <- data.frame(country="ethiopia", start_yr = 2013, end_yr = 2014, wave2, stringsAsFactors = F)
-w3_fert <- data.frame(country="ethiopia", start_yr = 2015, end_yr = 2016, wave3, stringsAsFactors = F)
-fert <- rbind(w1_fert, w2_fert, w3_fert)
+w1_fert = data.frame(country="ethiopia", start_yr = 2011, end_yr = 2012, wave1, stringsAsFactors = F) 
+w2_fert = data.frame(country="ethiopia", start_yr = 2013, end_yr = 2014, wave2, stringsAsFactors = F)
+w3_fert = data.frame(country="ethiopia", start_yr = 2015, end_yr = 2016, wave3, stringsAsFactors = F)
+fert = rbind(w1_fert, w2_fert, w3_fert)
 fert
 ```
 
@@ -90,15 +97,15 @@ fert
 
 ```{r}
 # LSMS data has 1 encoded as YES, 2 encoded as NO - we will change all 2s to 0s
-recode = function(x) ifelse(x == 2 | x == 0, 0, 1)
+
 fert_df = fert %>% mutate_at(c("fert", "urea", "dap", "manure", "compost", "organic_fert"), recode)
 
 # handling NAs - assume that if fert is 0 then no fertilizer was used, so set other columns to 0
 # remark 1: the . in list is a placeholder for all variables that we want to pass to it
 # remark 2: funs is deprecated in favor of list in dplyr 0.8.0
-handleNA <- function(x, y) ifelse(x == 0, 0, y)
-fert_df <- fert_df %>% mutate_at(c("urea", "dap", "manure", "compost", "organic_fert", "quant_urea", "quant_dap"), list(~handleNA(fert, .)))
-fert_df <- fert_df %>% mutate(quant_urea = handleNA(urea, quant_urea)) %>% mutate(quant_dap = handleNA(dap, quant_dap))
+
+fert_df = fert_df %>% mutate_at(c("urea", "dap", "manure", "compost", "organic_fert", "quant_urea", "quant_dap"), list(~handleNA(fert, .)))
+fert_df = fert_df %>% mutate(quant_urea = handleNA(urea, quant_urea)) %>% mutate(quant_dap = handleNA(dap, quant_dap))
 ```
 
 
@@ -106,7 +113,7 @@ fert_df <- fert_df %>% mutate(quant_urea = handleNA(urea, quant_urea)) %>% mutat
 # summarize fertilizer use into 3 dummy vars: organic, inorganic, overall
 # note that there is a fertilizer column from the LSMS data, but we're creating our own just in case the
 # data is unreliable
-fert_indic <- fert_df %>%
+fert_indic = fert_df %>%
   mutate(organic_fert_dummy = as.numeric(select(., matches('manure|compost|organic_fert')) %>% rowSums(na.rm=TRUE) > 0),
     inorganic_fert_dummy = as.numeric(select(., matches('urea|dap')) %>% rowSums(na.rm=TRUE) > 0),
     fert_dummy = as.numeric(select(., matches('fert|urea|dap|manure|compost')) %>% rowSums(na.rm=TRUE) >0))
@@ -137,17 +144,14 @@ fw1 = fert_weights %>% filter(start_yr==2011)
 fw2 = fert_weights %>% filter(start_yr==2013)
 fw3 = fert_weights %>% filter(start_yr==2015)
 fw1des = svydesign(id = ~hhid,
-                        strata  = ~start_yr,
                         weights = ~weights,
                         nest = TRUE,
                         data = fw1)
 fw2des = svydesign(id = ~hhid,
-                        strata  = ~start_yr,
                         weights = ~weights,
                         nest = TRUE,
                         data = fw2)
 fw3des = svydesign(id = ~hhid,
-                        strata  = ~start_yr,
                         weights = ~weights,
                         nest = TRUE,
                         data = fw3)
@@ -177,20 +181,103 @@ res
 ```
 
 ```{r}
-eth_agg = data.frame(res)
-eth_agg$year = rownames(res)
+eth_res = data.frame(res)
+eth_res = eth_res %>% add_column(year=rownames(res), .before='fert') %>% add_column(country=rep('Ethiopia', 3), .before='year')
+eth_res 
+```
+
+# Pesticide Data
+
+Drop rows that have NA prevention (prevention is binary: any method of prevention used).
+
+```{r}
+w1_phf = sect4_pp_w1 %>% select(hhid=household_id, weights = pw, prevention=pp_s4q04, pest=pp_s4q05, herb=pp_s4q06, fung=pp_s4q07) %>% drop_na(hhid, prevention)
+
+w2_phf = sect4_pp_w2 %>% select(hhid=household_id2, weights = pw2, prevention=pp_s4q04, pest=pp_s4q05, herb=pp_s4q06, fung=pp_s4q07) %>% drop_na(hhid, prevention)
+
+w3_phf = sect4_pp_w3 %>% select(hhid=household_id2, weights = pw_w3, prevention=pp_s4q04, pest=pp_s4q05, herb=pp_s4q06, fung=pp_s4q07) %>% drop_na(hhid, prevention)
+``` 
+
+```{r}
+w1 = data.frame(start_yr = 2011, end_yr = 2012, w1_phf, stringsAsFactors = F) 
+w2 = data.frame(start_yr = 2013, end_yr = 2014, w2_phf, stringsAsFactors = F)
+w3 = data.frame(start_yr = 2015, end_yr = 2016, w3_phf, stringsAsFactors = F)
+phf = rbind(w1, w2, w3)
+phf
 ```
 
 ```{r}
-# calculating means without weighting - clearly there's a difference.
-
-fw1 %>% select(-c('country', 'start_yr')) %>% summarize_all(mean, na.rm=TRUE)
+weights = phf %>% select(start_yr, hhid, weights) %>% unique() 
 ```
+
+```{r}
+# dropping weights before groupby summarize, will join back later
+# change 2s to 0s, 
+phf1 = phf %>% select(-c(weights)) %>% mutate_at(c("prevention", "pest", "herb", "fung"), recode) 
+
+# handling NAs - assume that if prevention is 0 then set other columns to 0
+phf2 = phf1 %>% mutate_at(c("pest", "herb", "fung"), list(~handleNA(prevention, .)) )
+```
+
+
+```{r}
+# summarize w/ indicators, join with weights
+phf_weights = phf2 %>% group_by(start_yr, hhid) %>% summarize_all(indicator) %>% inner_join(weights, by=c('start_yr', 'hhid'))
+```
+
+
+
+```{r}
+w1 = phf_weights %>% filter(start_yr==2011)
+w2 = phf_weights %>% filter(start_yr==2013)
+w3 = phf_weights %>% filter(start_yr==2015)
+pw1des = svydesign(id = ~hhid,
+                        weights = ~weights,
+                        nest = TRUE,
+                        data = w1)
+pw2des = svydesign(id = ~hhid,
+                        weights = ~weights,
+                        nest = TRUE,
+                        data = w2)
+pw3des = svydesign(id = ~hhid,
+                        weights = ~weights,
+                        nest = TRUE,
+                        data = w3)
+```
+
+
+
+```{r}
+cols = c('prevention', 'pest', 'herb', 'fung')
+d = length(cols)
+
+calc_means = function(design) {
+  means = c(0, d)
+  for (var in 1:d) {
+    f = as.formula(paste('~', cols[var]))
+    means[var] = svymean(f, design, na.rm=TRUE)
+  }
+  return(means)
+}
+res1 = matrix(0, nrow=3, ncol=d)
+res1[1,] = calc_means(pw1des)
+res1[2,] = calc_means(pw2des)
+res1[3,] = calc_means(pw3des)
+
+colnames(res1) = cols
+rownames(res1) = c(2011, 2013, 2015)
+res1
+```
+
+
+```{r}
+eth_res_final = rbind(eth_res, res1)
+```
+
+
 
 ```{r,eval=FALSE}
-write_csv(res, 'natl_agg_results/eth_res.csv')
+write_csv(eth_res, 'natl_agg_results/eth_res.csv')
 ```
-
-
 
 
